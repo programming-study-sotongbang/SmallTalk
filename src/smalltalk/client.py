@@ -89,23 +89,27 @@ class LLMClient:
                 raw_content = assistant_message.content or ""
                 content = strip_think_block(raw_content)
 
-                if not content and raw_content:
-                    logger.warning("Think 블록만 있고 실제 응답이 비어있습니다.")
-                    content = extract_think_content(raw_content)
+                # 실제 텍스트 응답이 있으면 그대로 반환 (send_final_response 안 쓴 경우)
+                if content:
+                    if self._toml_logger:
+                        self._toml_logger.log(
+                            "llm_response",
+                            role="assistant",
+                            content=content,
+                            extra={"iteration": iteration, "model": self._config.model},
+                        )
+                    return content, working_messages
 
-                if not content:
-                    content = "(모델이 빈 응답을 반환했습니다. 다시 시도해주세요.)"
-
-                # TOML 로그 기록
-                if self._toml_logger:
-                    self._toml_logger.log(
-                        "llm_response",
-                        role="assistant",
-                        content=content,
-                        extra={"iteration": iteration, "model": self._config.model},
-                    )
-
-                return content, working_messages
+                # 빈 응답 (think만 있거나 완전히 비어있음) → 재촉
+                logger.warning("빈 응답 감지 (iteration=%d). send_final_response 재촉 중...", iteration)
+                working_messages.append({
+                    "role": "user",
+                    "content": (
+                        "응답이 비어있습니다. "
+                        "반드시 send_final_response 도구를 호출하여 최종 답변을 전달하세요."
+                    ),
+                })
+                continue  # 루프 계속 → 모델에게 다시 기회
 
             # Tool 호출 실행 및 결과 주입
             for tool_call in assistant_message.tool_calls:
