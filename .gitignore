@@ -1,5 +1,6 @@
 # 설정 파일 (API 키 포함)
 config.yaml
+config.agent.yaml
 
 # 대화 로그
 logs/

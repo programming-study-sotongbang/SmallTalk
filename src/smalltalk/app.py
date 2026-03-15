@@ -7,7 +7,11 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+import yaml
 
 from smalltalk.agent.orchestrator import Orchestrator
 from smalltalk.agent.worker import WorkerRegistry
@@ -16,18 +20,20 @@ from smalltalk.config import AppConfig, load_config
 from smalltalk.interface.base import BaseInterface
 from smalltalk.interface.cli import CLIInterface
 from smalltalk.logger import TomlLogger
-from smalltalk.tool_registry import ToolRegistry
-from smalltalk.tools.datetime_tool import datetime_tools
+from smalltalk.tools import discover_all_tools
+from smalltalk.workers import get_worker_catalog
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
 
 # 인터페이스 타입 → 클래스 매핑
 INTERFACE_REGISTRY: dict[str, type[BaseInterface]] = {
     "cli": CLIInterface,
 }
 
-# 지연 임포트가 필요한 인터페이스 (의존성이 설치되어야 사용 가능)
+# 지연 임포트가 필요한 인터페이스
 LAZY_INTERFACES: dict[str, str] = {
     "telegram": "smalltalk.interface.telegram.TelegramInterface",
     "discord": "smalltalk.interface.discord.DiscordInterface",
@@ -55,6 +61,20 @@ def _resolve_interface(iface_config) -> BaseInterface:
     raise ValueError(f"알 수 없는 인터페이스 타입: {iface_type}")
 
 
+def _load_agent_config(path: str = "config.agent.yaml") -> list[str]:
+    """config.agent.yaml에서 활성화할 워커 목록을 로드합니다."""
+    config_path = Path(path)
+    if not config_path.exists():
+        logger.info("config.agent.yaml이 없습니다. 워커 없이 시작합니다.")
+        return []
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    workers = data.get("workers", []) or []
+    return workers
+
+
 class App:
     """SmallTalk 애플리케이션"""
 
@@ -68,12 +88,25 @@ class App:
         self._orchestrator_client = LLMClient(config.orchestrator, toml_logger=self._toml_logger)
         self._worker_client = LLMClient(config.worker, toml_logger=self._toml_logger)
 
-        # 워커 레지스트리 초기화
-        self._worker_registry = WorkerRegistry()
+        # ── 도구 자동 검색 (모두 로드) ──
+        self._tools = discover_all_tools()
+        logger.info("등록된 도구: %s", self._tools.names)
 
-        # 기본 도구 레지스트리 구성
-        self._tools = ToolRegistry()
-        self._tools.merge(datetime_tools)
+        # ── 워커 등록 (config.agent.yaml 기반) ──
+        self._worker_registry = WorkerRegistry()
+        active_workers = _load_agent_config()
+        catalog = get_worker_catalog()
+
+        for worker_name in active_workers:
+            if worker_name in catalog:
+                self._worker_registry.register(catalog[worker_name])
+                logger.info("워커 활성화: %s", worker_name)
+            else:
+                logger.warning(
+                    "워커 '%s'를 찾을 수 없습니다. "
+                    "src/smalltalk/workers/ 에 해당 모듈이 있는지 확인하세요.",
+                    worker_name,
+                )
 
         # 오케스트레이터 초기화
         self._orchestrator = Orchestrator(
