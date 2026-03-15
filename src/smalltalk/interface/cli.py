@@ -16,8 +16,8 @@ class CLIInterface(BaseInterface):
 
     EXIT_COMMANDS = {"exit", "quit", "종료", "q"}
 
-    def __init__(self) -> None:
-        self._running = False
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
 
     def start(self, message_handler: Callable[[str], str]) -> None:
         """
@@ -26,8 +26,6 @@ class CLIInterface(BaseInterface):
         Args:
             message_handler: 사용자 메시지를 처리하는 콜백.
         """
-        self._running = True
-
         print("=" * 60)
         print("  SmallTalk — 일상 생활 AI 어시스턴트")
         print("=" * 60)
@@ -35,7 +33,7 @@ class CLIInterface(BaseInterface):
         print("=" * 60)
         print()
 
-        while self._running:
+        while True:
             try:
                 user_input = input("사용자> ").strip()
             except (EOFError, KeyboardInterrupt):
@@ -57,7 +55,7 @@ class CLIInterface(BaseInterface):
 
     def stop(self) -> None:
         """CLI를 중지합니다."""
-        self._running = False
+        pass
 
 
 def main() -> None:

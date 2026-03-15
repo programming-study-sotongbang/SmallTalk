@@ -38,8 +38,10 @@ class InterfaceConfig(BaseModel):
     """개별 인터페이스 설정"""
 
     type: str = Field(description="인터페이스 타입 (cli, telegram, discord 등)")
-    # 타입별 추가 설정은 extra 필드로 허용
     token: str | None = Field(default=None, description="봇 토큰 (telegram, discord 등)")
+    allowed_users: list[str | int] | None = Field(default=None, description="허용 사용자 ID 목록")
+    blocked_users: list[str | int] | None = Field(default=None, description="차단 사용자 ID 목록")
+    allowed_chatrooms: list[str | int] | None = Field(default=None, description="허용 채팅방/채널 ID 목록")
 
     model_config = {"extra": "allow"}
 

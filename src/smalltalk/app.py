@@ -36,10 +36,12 @@ LAZY_INTERFACES: dict[str, str] = {
 def _resolve_interface(iface_config) -> BaseInterface:
     """설정에서 인터페이스 인스턴스를 생성합니다."""
     iface_type = iface_config.type
+    kwargs = iface_config.model_dump(exclude={"type"})
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
     if iface_type in INTERFACE_REGISTRY:
         cls = INTERFACE_REGISTRY[iface_type]
-        return cls()
+        return cls(**kwargs)
 
     if iface_type in LAZY_INTERFACES:
         import importlib
@@ -47,10 +49,7 @@ def _resolve_interface(iface_config) -> BaseInterface:
         module_path, _, class_name = LAZY_INTERFACES[iface_type].rpartition(".")
         module = importlib.import_module(module_path)
         cls = getattr(module, class_name)
-
-        # InterfaceConfig의 extra 필드를 kwargs로 전달
-        kwargs = iface_config.model_dump(exclude={"type"})
-        return cls(**{k: v for k, v in kwargs.items() if v is not None})
+        return cls(**kwargs)
 
     raise ValueError(f"알 수 없는 인터페이스 타입: {iface_type}")
 
