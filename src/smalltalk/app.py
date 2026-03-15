@@ -61,10 +61,12 @@ def _resolve_interface(iface_config) -> BaseInterface:
     raise ValueError(f"알 수 없는 인터페이스 타입: {iface_type}")
 
 
-def _load_agent_config(path: str = "config.agent.yaml") -> list[str]:
+def _load_agent_config(filename: str = "config.agent.yaml") -> list[str]:
     """config.agent.yaml에서 활성화할 워커 목록을 로드합니다."""
-    config_path = Path(path)
-    if not config_path.exists():
+    from smalltalk.config import resolve_config_path
+
+    config_path = resolve_config_path(filename)
+    if config_path is None:
         logger.info("config.agent.yaml이 없습니다. 워커 없이 시작합니다.")
         return []
 
@@ -72,6 +74,7 @@ def _load_agent_config(path: str = "config.agent.yaml") -> list[str]:
         data = yaml.safe_load(f) or {}
 
     workers = data.get("workers", []) or []
+    logger.info("워커 설정 로드: %s (from %s)", workers, config_path)
     return workers
 
 

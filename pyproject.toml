@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-smalltalk = "smalltalk.interface.cli:main"
+smalltalk = "smalltalk.cli:main"
 
 [dependency-groups]
 dev = [

@@ -3,15 +3,25 @@
 
 config.yaml 파일에서 설정을 읽어 Pydantic 모델로 검증합니다.
 Orchestrator와 Worker의 LLM 설정을 분리하여 관리합니다.
+
+설정 파일 검색 순서:
+  1. CWD (현재 작업 디렉토리)
+  2. ~/.smalltalk/ (홈 폴더)
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+# 홈 폴더 설정 디렉토리
+SMALLTALK_HOME = Path.home() / ".smalltalk"
 
 
 class LLMConfig(BaseModel):
@@ -57,27 +67,59 @@ class AppConfig(BaseModel):
     )
 
 
-def load_config(path: str | Path = "config.yaml") -> AppConfig:
+def resolve_config_path(filename: str) -> Path | None:
+    """
+    설정 파일 경로를 검색 순서에 따라 찾습니다.
+
+    검색 순서:
+      1. CWD (현재 작업 디렉토리)
+      2. ~/.smalltalk/
+
+    Args:
+        filename: 찾을 설정 파일 이름.
+
+    Returns:
+        파일이 존재하는 경로, 없으면 None.
+    """
+    candidates = [
+        Path.cwd() / filename,
+        SMALLTALK_HOME / filename,
+    ]
+
+    for path in candidates:
+        if path.exists():
+            logger.debug("설정 파일 발견: %s", path)
+            return path
+
+    return None
+
+
+def load_config(filename: str = "config.yaml") -> AppConfig:
     """
     YAML 설정 파일을 로드하고 검증합니다.
 
+    CWD → ~/.smalltalk/ 순서로 설정 파일을 찾습니다.
+
     Args:
-        path: 설정 파일 경로. 기본값은 프로젝트 루트의 config.yaml.
+        filename: 설정 파일 이름.
 
     Returns:
         검증된 AppConfig 객체.
 
     Raises:
-        FileNotFoundError: 설정 파일이 없을 경우.
+        FileNotFoundError: 설정 파일이 어디에도 없을 경우.
         pydantic.ValidationError: 설정 값이 유효하지 않을 경우.
     """
-    config_path = Path(path)
+    config_path = resolve_config_path(filename)
 
-    if not config_path.exists():
+    if config_path is None:
         raise FileNotFoundError(
-            f"설정 파일을 찾을 수 없습니다: {config_path}\n"
-            f"config.example.yaml을 config.yaml로 복사한 뒤, 실제 값을 채워주세요."
+            f"설정 파일을 찾을 수 없습니다: {filename}\n"
+            f"검색 경로: CWD ({Path.cwd()}), 홈 ({SMALLTALK_HOME})\n"
+            f"'smalltalk --init' 으로 설정 파일을 생성하세요."
         )
+
+    logger.info("설정 로드: %s", config_path)
 
     with open(config_path, encoding="utf-8") as f:
         raw: dict[str, Any] = yaml.safe_load(f) or {}
