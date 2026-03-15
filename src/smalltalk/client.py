@@ -133,6 +133,19 @@ class LLMClient:
                         tool_result=result,
                     )
 
+                # send_final_response 감지 → 즉시 반환
+                from smalltalk.agent.orchestrator import FINAL_RESPONSE_MARKER
+                if result.startswith(FINAL_RESPONSE_MARKER):
+                    final = result[len(FINAL_RESPONSE_MARKER):]
+                    logger.info("최종 응답 (send_final_response): %s...", final[:100])
+                    if self._toml_logger:
+                        self._toml_logger.log(
+                            "final_response",
+                            role="assistant",
+                            content=final,
+                        )
+                    return final, working_messages
+
                 working_messages.append(
                     {
                         "role": "tool",
