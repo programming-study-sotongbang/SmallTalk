@@ -197,25 +197,31 @@ class Orchestrator(BaseAgent):
 
     def _parse_response(self, response: str) -> list[Message]:
         """응답 문자열을 Message 리스트로 변환합니다."""
+        raw = response
+
         # send_final_response 마커 감지
         if response.startswith(FINAL_RESPONSE_MARKER):
             raw = response[len(FINAL_RESPONSE_MARKER):]
+
+        # JSON 페이로드 파싱 시도 (마커 있든 없든)
+        stripped = raw.strip()
+        if stripped.startswith("{"):
             try:
-                payload = json.loads(raw)
-                result: list[Message] = []
+                payload = json.loads(stripped)
+                if "response" in payload:
+                    result: list[Message] = []
 
-                text = payload.get("response", "")
-                if text:
-                    result.append(text_message(text))
+                    text = payload.get("response", "")
+                    if text:
+                        result.append(text_message(text))
 
-                images = payload.get("images", {})
-                if isinstance(images, dict):
-                    for path, caption in images.items():
-                        result.append(image_message(path, caption or ""))
+                    images = payload.get("images", {})
+                    if isinstance(images, dict):
+                        for path, caption in images.items():
+                            result.append(image_message(path, caption or ""))
 
-                return result if result else [text_message(raw)]
-
+                    return result if result else [text_message(raw)]
             except json.JSONDecodeError:
-                return [text_message(raw)]
+                pass
 
-        return [text_message(response)]
+        return [text_message(raw)]
