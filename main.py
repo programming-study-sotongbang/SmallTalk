@@ -6,12 +6,12 @@ from smalltalk.app import create_app
 
 
 def main():
-    # 로깅 설정 — smalltalk 패키지의 INFO 이상 로그 출력
+    # 로깅 설정 — WARNING 이상만 콘솔 출력 (상세 로그는 logs/ 폴더의 TOML 참고)
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARNING,
         format="[%(levelname)s] %(name)s: %(message)s",
     )
-    # DEBUG 레벨로 보려면 아래 주석을 해제
+    # DEBUG/INFO 콘솔 출력이 필요하면 아래 주석 해제
     # logging.getLogger("smalltalk").setLevel(logging.DEBUG)
 
     app = create_app()
