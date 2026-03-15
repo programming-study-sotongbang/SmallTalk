@@ -1,0 +1,33 @@
+# SmallTalk 설정 예시 파일
+# 이 파일을 config.yaml로 복사한 뒤, 실제 값을 채워서 사용하세요.
+
+# 오케스트레이터 (플래너 겸 메인 에이전트) LLM 설정
+orchestrator:
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "sk-or-your-api-key-here"
+  model: "qwen/qwen3.5-30b-a3b"
+  temperature: 0.7
+  max_tokens: 4096
+
+# 워커 (서브 에이전트) LLM 설정
+worker:
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "sk-or-your-api-key-here"
+  model: "qwen/qwen3.5-4b"
+  temperature: 0.5
+  max_tokens: 2048
+
+# 에이전트 동작 설정
+agent:
+  max_loop_iterations: 10
+
+# 활성화할 인터페이스 목록
+# 각 인터페이스 타입에 필요한 설정값을 함께 명시합니다.
+interfaces:
+  - type: cli
+
+  # - type: telegram
+  #   token: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+
+  # - type: discord
+  #   token: "MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.Abc123.abcdefghijklmnopqrstuvwxyz"
