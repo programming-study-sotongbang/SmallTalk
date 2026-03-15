@@ -4,23 +4,42 @@
 
 ## 개요
 
-SmallTalk은 코딩이 아닌 **일상 생활 영역**에서 사용되는 AI 에이전트를 안전한 방향으로 재구현하는 프로젝트입니다. Qwen3.5 4B~30B 급의 소형 모델을 사용하며, LMStudio, Ollama, OpenRouter 등 OpenAI-호환 API를 지원하는 모든 백엔드에서 동작합니다.
+SmallTalk은 코딩이 아닌 **일상 생활 영역**에서 사용되는 AI 에이전트를 안전한 방향으로 재구현하는 프로젝트입니다. Qwen3.5 4B~30B 급의 소형 모델을 사용하고, LMStudio, Ollama, OpenRouter 등 OpenAI-호환 API를 지원하는 모든 백엔드에서 동작합니다.
 
 ## 아키텍처
 
 ```
-사용자 ←→ Interface (CLI/Telegram/Discord)
+사용자 ←→ Interface (CLI / Telegram / Discord)
               ↕
          Orchestrator (플래너 겸 오케스트레이터)
-           ↕         ↕
-    search_workers  dispatch_worker
-           ↕         ↕
-     KeywordSearch  Worker (서브 에이전트)
+         ┌────┼────┬────────────┐
+     set_plan  │  report_status  send_final_response
+               ↕
+        ┌──────┴──────┐
+  search_workers  dispatch_worker
+        ↕                ↕
+  KeywordSearch    Worker (서브 에이전트)
 ```
 
-- **Orchestrator**: 사용자 요청을 분석, 작업을 분해하고 적절한 Worker를 검색/호출
-- **Worker**: 특정 작업에 특화된 서브 에이전트, 독립된 컨텍스트에서 동작
-- **Interface**: 수신/발송 채널 (CLI, Telegram, Discord 등)
+### 핵심 흐름
+
+1. **인터페이스**가 사용자 메시지를 수신
+2. **오케스트레이터**가 `set_plan`으로 작업 계획을 수립 → 사용자에게 표시
+3. 각 단계마다 `report_status`로 진행 상황 실시간 표시
+4. 필요 시 `search_workers` → `dispatch_worker`로 워커 검색/호출
+5. `send_final_response`로 최종 응답 전달
+6. **같은 인터페이스**를 통해 응답 발송
+
+### 주요 구성 요소
+
+| 구성 요소 | 역할 |
+|-----------|------|
+| **Orchestrator** | 플래너 겸 오케스트레이터. 요청 분석, 작업 분해, Worker 검색/호출 |
+| **Worker** | 특정 작업 특화 서브 에이전트. 독립 컨텍스트에서 동작 |
+| **ToolRegistry** | `@tool` 데코레이터로 도구 등록. OpenAI function schema 자동 생성 |
+| **Interface** | 수신/발송 채널 (CLI, Telegram, Discord). 공통 필터링 내장 |
+| **KeywordSearch** | TF-IDF 기반 워커 검색 엔진 |
+| **TomlLogger** | 대화 로그를 세션별 TOML 파일로 기록 |
 
 ## 설치
 
@@ -36,106 +55,82 @@ cp config.example.yaml config.yaml
 # config.yaml을 열어 API 키와 모델 설정을 채워주세요
 ```
 
+### 선택적 의존성
+
+```bash
+# 텔레그램 봇 사용 시
+uv add 'python-telegram-bot>=21.0'
+
+# 디스코드 봇 사용 시
+uv add 'discord.py>=2.0'
+```
+
 ## 사용법
 
 ```bash
 # CLI 모드로 실행
 uv run python main.py
-
-# 또는
-uv run smalltalk
 ```
 
 ## 설정
 
-`config.yaml`에서 Orchestrator와 Worker의 LLM 설정을 분리하여 관리합니다:
+`config.yaml`에서 Orchestrator와 Worker의 LLM 설정을 분리하여 관리합니다.
+`config.example.yaml`을 참고하세요.
 
 ```yaml
-orchestrator:
+orchestrator:          # 오케스트레이터 LLM 설정
   base_url: "https://openrouter.ai/api/v1"
   api_key: "sk-or-..."
   model: "qwen/qwen3.5-30b-a3b"
   temperature: 0.7
-  max_tokens: 4096
+  max_tokens: 4096     # 출력 최대 토큰 수 (컨텍스트 윈도우가 아님!)
 
-worker:
-  base_url: "http://localhost:1234/v1"
-  model: "qwen3.5-4b"
+worker:                # 워커 LLM 설정
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "sk-or-..."
+  model: "qwen/qwen3.5-4b"
   temperature: 0.5
   max_tokens: 2048
 
 agent:
   max_loop_iterations: 10
 
-interfaces:
+interfaces:            # 활성화할 인터페이스 목록
   - type: cli
   # - type: telegram
   #   token: "your-bot-token"
+  #   allowed_users: [12345678]        # 허용 사용자 ID
+  #   blocked_users: []                # 차단 사용자 ID
+  #   allowed_chatrooms: [-100123456]  # 허용 채팅방 ID
 ```
 
 ## 프로젝트 구조
 
 ```
 src/smalltalk/
-├── config.py          # 설정 로드/검증
-├── client.py          # OpenAI-호환 LLM 클라이언트
-├── app.py             # 앱 부트스트랩
-├── tool_registry.py   # @tool 데코레이터 및 Tool 관리
+├── config.py           # 설정 로드/검증 (Pydantic)
+├── client.py           # OpenAI-호환 LLM 클라이언트 + Tool 호출 루프
+├── app.py              # 앱 부트스트랩
+├── logger.py           # TOML 파일 기반 대화 로거
+├── tool_registry.py    # @tool 데코레이터 및 Tool 관리
 ├── agent/
-│   ├── base.py        # 에이전트 기본 클래스
-│   ├── orchestrator.py # 오케스트레이터
-│   └── worker.py      # 워커 + WorkerRegistry
+│   ├── base.py         # 에이전트 기본 클래스
+│   ├── orchestrator.py # 오케스트레이터 (set_plan, report_status, send_final_response)
+│   └── worker.py       # 워커 + WorkerRegistry
 ├── search/
 │   └── keyword_search.py  # TF-IDF 키워드 검색
 ├── tools/
-│   └── datetime_tool.py   # 예시 도구
+│   └── datetime_tool.py   # 예시 도구 (get_current_datetime)
 └── interface/
-    ├── base.py        # 인터페이스 추상 클래스
-    ├── cli.py         # CLI REPL
-    ├── telegram.py    # 텔레그램 (스텁)
-    └── discord.py     # 디스코드 (스텁)
+    ├── base.py         # 인터페이스 추상 클래스 + 공통 필터링
+    ├── cli.py          # CLI REPL
+    ├── telegram.py     # 텔레그램 봇
+    └── discord.py      # 디스코드 봇
 ```
 
-## 기여 가이드
+## 기여하기
 
-### 워커(서브 에이전트) 추가
-
-`WorkerInfo`를 정의하고 `WorkerRegistry`에 등록하면 됩니다:
-
-```python
-from smalltalk.agent.worker import WorkerInfo
-from smalltalk.tool_registry import ToolRegistry
-
-weather_worker = WorkerInfo(
-    name="weather_assistant",
-    description="날씨 정보를 조회하고 안내하는 어시스턴트",
-    system_prompt="당신은 날씨 정보 전문가입니다...",
-    tool_registry=ToolRegistry(),  # 워커 전용 도구
-)
-```
-
-### 인터페이스 추가
-
-`BaseInterface`를 구현하고 `config.yaml`에 등록하면 됩니다.
-
-### 도구 추가
-
-`@tool` 데코레이터를 사용합니다:
-
-```python
-from smalltalk.tool_registry import ToolRegistry, tool
-
-my_tools = ToolRegistry()
-
-@tool(my_tools)
-def search_web(query: str) -> str:
-    """웹에서 정보를 검색합니다.
-
-    Args:
-        query: 검색할 키워드.
-    """
-    ...
-```
+[CONTRIBUTING.md](CONTRIBUTING.md)를 참고해주세요.
 
 ## 라이선스
 
