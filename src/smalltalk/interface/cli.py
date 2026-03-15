@@ -2,13 +2,16 @@
 CLI REPL 인터페이스.
 
 터미널에서 대화형으로 에이전트와 소통하는 기본 인터페이스입니다.
+이미지 메시지는 파일 경로로 표시됩니다.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 from smalltalk.interface.base import BaseInterface
+from smalltalk.message import Message
 
 
 class CLIInterface(BaseInterface):
@@ -19,7 +22,7 @@ class CLIInterface(BaseInterface):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-    def start(self, message_handler: Callable[[str], str]) -> None:
+    def start(self, message_handler: Callable[[str], list[Message]]) -> None:
         """
         CLI REPL을 시작합니다.
 
@@ -48,10 +51,25 @@ class CLIInterface(BaseInterface):
                 break
 
             try:
-                response = message_handler(user_input)
-                print(f"\n어시스턴트> {response}\n")
+                messages = message_handler(user_input)
+                self._print_messages(messages)
             except Exception as e:
                 print(f"\n[오류] 응답 처리 중 문제가 발생했습니다: {e}\n")
+
+    def _print_messages(self, messages: list[Message]) -> None:
+        """Message 리스트를 터미널에 출력합니다."""
+        print()
+        for msg in messages:
+            if msg.type == "text":
+                print(f"어시스턴트> {msg.content}")
+            elif msg.type == "image":
+                path = Path(msg.content)
+                caption = f" ({msg.caption})" if msg.caption else ""
+                if path.exists():
+                    print(f"  📎 [이미지{caption}] {path}")
+                else:
+                    print(f"  📎 [이미지{caption}] {msg.content} (파일 없음)")
+        print()
 
     def stop(self) -> None:
         """CLI를 중지합니다."""

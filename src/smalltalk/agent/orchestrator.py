@@ -14,6 +14,7 @@ import json
 from typing import TYPE_CHECKING, Callable
 
 from smalltalk.agent.base import BaseAgent
+from smalltalk.message import Message, image_message, messages_to_openai_content, text_message
 from smalltalk.tool_registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -99,14 +100,23 @@ class Orchestrator(BaseAgent):
             return "상태가 사용자에게 표시되었습니다. 계속 진행하세요."
 
         @orchestrator_tools.register
-        def send_final_response(response: str) -> str:
+        def send_final_response(response: str, images: str = "") -> str:
             """최종 응답을 사용자에게 전달합니다. 모든 작업이 완료된 후 반드시 호출하세요.
 
             Args:
                 response: 사용자에게 전달할 최종 응답 텍스트.
+                images: 첨부 이미지 맵 (JSON). 키=파일경로, 값=캡션. 예: {"chart.png": "매출 차트"}
             """
-            # 마커를 붙여 반환 → chat_with_tools에서 감지
-            return f"{FINAL_RESPONSE_MARKER}{response}"
+            import json as _json
+
+            payload = {"response": response}
+            if images:
+                try:
+                    payload["images"] = _json.loads(images)
+                except _json.JSONDecodeError:
+                    payload["images"] = {}
+
+            return f"{FINAL_RESPONSE_MARKER}{_json.dumps(payload, ensure_ascii=False)}"
 
         # ── 워커 관련 도구 ──
 
@@ -156,11 +166,25 @@ class Orchestrator(BaseAgent):
         """워커용 LLM 클라이언트를 설정합니다."""
         self._worker_client = client
 
-    def run(self, user_input: str) -> str:
-        """사용자 요청을 처리합니다."""
+    def run(self, user_input: list[Message] | str) -> list[Message]:
+        """
+        사용자 요청을 처리합니다.
+
+        Args:
+            user_input: 사용자 입력. str 또는 list[Message].
+
+        Returns:
+            응답 Message 리스트.
+        """
+        # 입력을 OpenAI 메시지 형식으로 변환
+        if isinstance(user_input, str):
+            content: str | list[dict] = user_input
+        else:
+            content = messages_to_openai_content(user_input)
+
         messages = [
             self._build_system_message(),
-            {"role": "user", "content": user_input},
+            {"role": "user", "content": content},
         ]
 
         response, _ = self.client.chat_with_tools(
@@ -169,8 +193,29 @@ class Orchestrator(BaseAgent):
             max_iterations=self._agent_config.max_loop_iterations,
         )
 
-        # send_final_response 마커가 있으면 추출
-        if response.startswith(FINAL_RESPONSE_MARKER):
-            return response[len(FINAL_RESPONSE_MARKER):]
+        return self._parse_response(response)
 
-        return response
+    def _parse_response(self, response: str) -> list[Message]:
+        """응답 문자열을 Message 리스트로 변환합니다."""
+        # send_final_response 마커 감지
+        if response.startswith(FINAL_RESPONSE_MARKER):
+            raw = response[len(FINAL_RESPONSE_MARKER):]
+            try:
+                payload = json.loads(raw)
+                result: list[Message] = []
+
+                text = payload.get("response", "")
+                if text:
+                    result.append(text_message(text))
+
+                images = payload.get("images", {})
+                if isinstance(images, dict):
+                    for path, caption in images.items():
+                        result.append(image_message(path, caption or ""))
+
+                return result if result else [text_message(raw)]
+
+            except json.JSONDecodeError:
+                return [text_message(raw)]
+
+        return [text_message(response)]

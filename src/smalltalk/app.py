@@ -125,12 +125,17 @@ class App:
             _resolve_interface(iface) for iface in config.interfaces
         ]
 
-    def _handle_message(self, user_input: str) -> str:
+    def _handle_message(self, user_input: str) -> list:
         """사용자 메시지를 오케스트레이터에 전달합니다."""
         self._toml_logger.log("user_input", role="user", content=user_input)
-        response = self._orchestrator.run(user_input)
-        self._toml_logger.log("assistant_response", role="assistant", content=response)
-        return response
+        messages = self._orchestrator.run(user_input)
+
+        # TOML 로그: 텍스트 응답만 기록
+        text_parts = [m.content for m in messages if m.type == "text"]
+        if text_parts:
+            self._toml_logger.log("assistant_response", role="assistant", content="\n".join(text_parts))
+
+        return messages
 
     def run(self) -> None:
         """첫 번째 인터페이스를 시작합니다."""

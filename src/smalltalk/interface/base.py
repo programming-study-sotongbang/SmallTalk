@@ -84,12 +84,12 @@ class BaseInterface(ABC):
         return True
 
     @abstractmethod
-    def start(self, message_handler: Callable[[str], str]) -> None:
+    def start(self, message_handler: Callable[[str], list]) -> None:
         """
         인터페이스를 시작합니다.
 
         Args:
-            message_handler: 사용자 메시지를 받아 응답을 반환하는 콜백.
+            message_handler: 사용자 메시지(str)를 받아 list[Message]를 반환하는 콜백.
         """
         ...
 
