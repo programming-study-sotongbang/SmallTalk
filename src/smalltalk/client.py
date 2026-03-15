@@ -8,6 +8,7 @@ LMStudio, Ollama, OpenRouter 등 OpenAI API 규격을 지원하는
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -21,14 +22,18 @@ if TYPE_CHECKING:
     )
 
     from smalltalk.config import LLMConfig
+    from smalltalk.logger import TomlLogger
     from smalltalk.tool_registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
     """OpenAI-호환 API 클라이언트 래퍼"""
 
-    def __init__(self, config: LLMConfig) -> None:
+    def __init__(self, config: LLMConfig, toml_logger: TomlLogger | None = None) -> None:
         self._config = config
+        self._toml_logger = toml_logger
         self._client = OpenAI(
             base_url=config.base_url,
             api_key=config.api_key or "not-needed",
@@ -61,10 +66,6 @@ class LLMClient:
         """
         Tool 호출 자동 루프를 수행합니다.
 
-        LLM이 tool_calls를 반환하면 해당 도구를 실행하고,
-        결과를 메시지에 추가한 뒤 재호출합니다.
-        텍스트 응답이 나오거나 max_iterations에 도달하면 종료합니다.
-
         Args:
             messages: 대화 메시지 히스토리.
             tool_registry: 사용 가능한 도구 레지스트리.
@@ -76,25 +77,61 @@ class LLMClient:
         openai_tools = tool_registry.get_openai_tools()
         working_messages = list(messages)
 
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
             response = self.chat(working_messages, tools=openai_tools or None)
             choice = response.choices[0]
             assistant_message = choice.message
 
-            # 메시지 히스토리에 어시스턴트 응답 추가
             working_messages.append(assistant_message)  # type: ignore[arg-type]
 
             # Tool 호출이 없으면 최종 응답으로 판단
             if not assistant_message.tool_calls:
-                content = assistant_message.content or ""
-                return strip_think_block(content), working_messages
+                raw_content = assistant_message.content or ""
+                content = strip_think_block(raw_content)
+
+                if not content and raw_content:
+                    logger.warning("Think 블록만 있고 실제 응답이 비어있습니다.")
+                    content = extract_think_content(raw_content)
+
+                if not content:
+                    content = "(모델이 빈 응답을 반환했습니다. 다시 시도해주세요.)"
+
+                # TOML 로그 기록
+                if self._toml_logger:
+                    self._toml_logger.log(
+                        "llm_response",
+                        role="assistant",
+                        content=content,
+                        extra={"iteration": iteration, "model": self._config.model},
+                    )
+
+                return content, working_messages
 
             # Tool 호출 실행 및 결과 주입
             for tool_call in assistant_message.tool_calls:
                 fn_name = tool_call.function.name
                 fn_args = json.loads(tool_call.function.arguments)
 
+                logger.info("Tool 호출: %s(%s)", fn_name, fn_args)
+
+                # TOML 로그 — Tool 호출
+                if self._toml_logger:
+                    self._toml_logger.log(
+                        "tool_call",
+                        tool_name=fn_name,
+                        tool_args=json.dumps(fn_args, ensure_ascii=False),
+                    )
+
                 result = tool_registry.execute(fn_name, fn_args)
+                logger.info("Tool 결과: %s", result[:200] if len(result) > 200 else result)
+
+                # TOML 로그 — Tool 결과
+                if self._toml_logger:
+                    self._toml_logger.log(
+                        "tool_result",
+                        tool_name=fn_name,
+                        tool_result=result,
+                    )
 
                 working_messages.append(
                     {
@@ -104,7 +141,7 @@ class LLMClient:
                     }
                 )
 
-        # max_iterations 도달 시 마지막 응답 반환
+        logger.warning("max_iterations(%d) 도달", max_iterations)
         last_content = working_messages[-1].get("content", "") if isinstance(working_messages[-1], dict) else getattr(working_messages[-1], "content", "") or ""
         return strip_think_block(str(last_content)), working_messages
 
@@ -112,3 +149,11 @@ class LLMClient:
 def strip_think_block(text: str) -> str:
     """<think>...</think> 블록을 제거합니다."""
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+
+
+def extract_think_content(text: str) -> str:
+    """<think>...</think> 블록에서 내용만 추출합니다 (폴백용)."""
+    match = re.search(r"<think>(.*?)</think>", text, flags=re.DOTALL)
+    if match:
+        return f"(생각 중이었던 내용)\n{match.group(1).strip()}"
+    return ""

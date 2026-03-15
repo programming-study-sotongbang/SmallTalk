@@ -15,6 +15,7 @@ from smalltalk.client import LLMClient
 from smalltalk.config import AppConfig, load_config
 from smalltalk.interface.base import BaseInterface
 from smalltalk.interface.cli import CLIInterface
+from smalltalk.logger import TomlLogger
 from smalltalk.tool_registry import ToolRegistry
 from smalltalk.tools.datetime_tool import datetime_tools
 
@@ -60,9 +61,12 @@ class App:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
 
-        # LLM 클라이언트 초기화
-        self._orchestrator_client = LLMClient(config.orchestrator)
-        self._worker_client = LLMClient(config.worker)
+        # TOML 로거 초기화
+        self._toml_logger = TomlLogger()
+
+        # LLM 클라이언트 초기화 (TOML 로거 주입)
+        self._orchestrator_client = LLMClient(config.orchestrator, toml_logger=self._toml_logger)
+        self._worker_client = LLMClient(config.worker, toml_logger=self._toml_logger)
 
         # 워커 레지스트리 초기화
         self._worker_registry = WorkerRegistry()
@@ -87,7 +91,10 @@ class App:
 
     def _handle_message(self, user_input: str) -> str:
         """사용자 메시지를 오케스트레이터에 전달합니다."""
-        return self._orchestrator.run(user_input)
+        self._toml_logger.log("user_input", role="user", content=user_input)
+        response = self._orchestrator.run(user_input)
+        self._toml_logger.log("assistant_response", role="assistant", content=response)
+        return response
 
     def run(self) -> None:
         """첫 번째 인터페이스를 시작합니다."""
